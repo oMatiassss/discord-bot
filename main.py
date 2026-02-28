@@ -8,7 +8,7 @@ from datetime import datetime
 TOKEN = os.getenv("TOKEN")
 
 ALERT_ROLE_ID = 111111111111111111  # PUT YOUR ROLE ID
-ALERT_CHANNEL_ID = 222222222222222222  # PUT YOUR CHANNEL ID
+ALERT_CHANNEL_ID =1477368909945503846
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -267,3 +267,4 @@ async def on_ready():
     print(f"Bot running as {bot.user}")
 
 bot.run(TOKEN)
+
