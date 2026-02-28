@@ -5,7 +5,7 @@ import os
 import shutil
 from datetime import datetime
 
-TOKEN = os.getenv("MTQ3NzA2NzAzOTg0MjYzNTg1OA.G0vCSX.mVsjHxQcYur6qznxY73CyCZNQf57TDarhdxP88")
+TOKEN = os.getenv("MTQ3NzA2NzAzOTg0MjYzNTg1OA.GO6CMP.A6lejVq5KvHinctb5zT3aS-xq1RT-6cF_mDwcc")
 
 ALERT_ROLE_ID =1477373729486147634
 ALERT_CHANNEL_ID =1477368909945503846
@@ -267,5 +267,6 @@ async def on_ready():
     print(f"Bot running as {bot.user}")
 
 bot.run(TOKEN)
+
 
 
