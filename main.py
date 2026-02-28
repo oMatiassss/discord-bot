@@ -1,11 +1,14 @@
 import discord
 from discord.ext import commands
-import os
 import json
+import os
 import shutil
-import datetime
+from datetime import datetime
 
 TOKEN = os.getenv("TOKEN")
+
+ALERT_ROLE_ID = 111111111111111111  # PUT YOUR ROLE ID
+ALERT_CHANNEL_ID = 222222222222222222  # PUT YOUR CHANNEL ID
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -13,74 +16,187 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ================== ARQUIVOS ==================
+# ================= FILE SYSTEM =================
 
-def load_json(file):
-    with open(file, "r") as f:
+def load_json(filename):
+    if not os.path.exists(filename):
+        with open(filename, "w") as f:
+            json.dump({}, f)
+    with open(filename, "r") as f:
         return json.load(f)
 
-def save_json(file, data):
-    with open(file, "w") as f:
+def save_json(filename, data):
+    with open(filename, "w") as f:
         json.dump(data, f, indent=4)
 
 def backup_files():
-    if not os.path.exists("backup"):
-        os.makedirs("backup")
+    shutil.copy("stock.json", "backup_stock.json")
+    shutil.copy("sales.json", "backup_sales.json")
 
-    now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+def is_admin(ctx):
+    return ctx.author.guild_permissions.administrator
 
-    for file in ["credits.json", "stock.json", "history.json"]:
-        if os.path.exists(file):
-            shutil.copy(file, f"backup/{file.replace('.json','')}_{now}.json")
+# ================= INITIAL SETUP =================
 
-# ================== COMANDOS ==================
+if not os.path.exists("stock.json"):
+    save_json("stock.json", {
+        "LOW": [],
+        "MEDIUM": [],
+        "HIGH": []
+    })
+
+if not os.path.exists("sales.json"):
+    save_json("sales.json", [])
+
+# ================= RESTOCK ALERT =================
+
+async def send_restock_alert(ctx, tier, total):
+    channel = bot.get_channel(ALERT_CHANNEL_ID)
+    if not channel:
+        return
+
+    role = ctx.guild.get_role(ALERT_ROLE_ID)
+    if not role:
+        return
+
+    embed = discord.Embed(
+        title="🚨 STOCK UPDATED",
+        description=f"**{tier}** has been restocked!",
+        color=discord.Color.green()
+    )
+
+    embed.add_field(name="Available Now", value=total)
+    embed.set_footer(text="Automated Stock System")
+
+    await channel.send(role.mention, embed=embed)
+
+# ================= STORE VIEW =================
+
+class StoreView(discord.ui.View):
+    def __init__(self, message=None):
+        super().__init__(timeout=None)
+        self.message = message
+
+    async def update_panel(self):
+        stock = load_json("stock.json")
+
+        embed = discord.Embed(
+            title="💎 VIPER GEN STORE",
+            description="Click a button below to generate instantly.",
+            color=discord.Color.from_rgb(25, 25, 25)
+        )
+
+        embed.add_field(
+            name="🔴 LOW",
+            value=f"3 Credits\nStock: {len(stock['LOW'])}",
+            inline=False
+        )
+
+        embed.add_field(
+            name="🔵 MEDIUM",
+            value=f"10 Credits\nStock: {len(stock['MEDIUM'])}",
+            inline=False
+        )
+
+        embed.add_field(
+            name="🟢 HIGH",
+            value=f"14 Credits\nStock: {len(stock['HIGH'])}",
+            inline=False
+        )
+
+        embed.set_footer(text="Instant • Automated • Secure")
+
+        await self.message.edit(embed=embed, view=self)
+
+    async def process_purchase(self, interaction, tier):
+        stock = load_json("stock.json")
+        sales = load_json("sales.json")
+
+        if len(stock[tier]) == 0:
+            return await interaction.response.send_message(
+                "❌ Out of stock.", ephemeral=True)
+
+        item = stock[tier].pop(0)
+        save_json("stock.json", stock)
+
+        sales.append({
+            "user": str(interaction.user),
+            "id": interaction.user.id,
+            "tier": tier,
+            "item": item,
+            "date": str(datetime.now())
+        })
+
+        save_json("sales.json", sales)
+        backup_files()
+
+        try:
+            await interaction.user.send(
+                f"🎉 Your {tier} account:\n```{item}```"
+            )
+        except:
+            return await interaction.response.send_message(
+                "❌ Enable your DMs.", ephemeral=True)
+
+        await interaction.response.send_message(
+            f"✅ {tier} delivered to your DM.", ephemeral=True)
+
+        await self.update_panel()
+
+    @discord.ui.button(label="LOW • 3", style=discord.ButtonStyle.danger)
+    async def low(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.process_purchase(interaction, "LOW")
+
+    @discord.ui.button(label="MEDIUM • 10", style=discord.ButtonStyle.primary)
+    async def medium(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.process_purchase(interaction, "MEDIUM")
+
+    @discord.ui.button(label="HIGH • 14", style=discord.ButtonStyle.success)
+    async def high(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.process_purchase(interaction, "HIGH")
+
+# ================= DEPLOY PANEL =================
 
 @bot.command()
-async def credits(ctx):
-    credits = load_json("credits.json")
-    user_id = str(ctx.author.id)
-    saldo = credits.get(user_id, 0)
-    await ctx.send(f"💳 Você tem {saldo} créditos.")
+async def deploypanel(ctx):
+    if not is_admin(ctx):
+        return await ctx.send("❌ Admin only command.")
 
-@bot.command()
-async def addcredits(ctx, member: discord.Member, amount: int):
-    if not ctx.author.guild_permissions.administrator:
-        return await ctx.send("❌ Sem permissão.")
-
-    credits = load_json("credits.json")
-    user_id = str(member.id)
-
-    credits[user_id] = credits.get(user_id, 0) + amount
-    save_json("credits.json", credits)
-
-    await ctx.send(f"✅ {amount} créditos adicionados para {member.mention}")
-
-@bot.command()
-async def stock(ctx):
     stock = load_json("stock.json")
 
-    embed = discord.Embed(title="📦 Estoque Atual", color=discord.Color.blue())
-    embed.add_field(name="LOW", value=len(stock["LOW"]), inline=False)
-    embed.add_field(name="MEDIUM", value=len(stock["MEDIUM"]), inline=False)
-    embed.add_field(name="HIGH", value=len(stock["HIGH"]), inline=False)
+    embed = discord.Embed(
+        title="💎 VIPER GEN STORE",
+        description="Click a button below to generate instantly.",
+        color=discord.Color.from_rgb(25, 25, 25)
+    )
 
-    await ctx.send(embed=embed)
+    embed.add_field(name="🔴 LOW", value=f"3 Credits\nStock: {len(stock['LOW'])}", inline=False)
+    embed.add_field(name="🔵 MEDIUM", value=f"10 Credits\nStock: {len(stock['MEDIUM'])}", inline=False)
+    embed.add_field(name="🟢 HIGH", value=f"14 Credits\nStock: {len(stock['HIGH'])}", inline=False)
+
+    embed.set_footer(text="Instant • Automated • Secure")
+
+    view = StoreView()
+    message = await ctx.send(embed=embed, view=view)
+    view.message = message
+
+# ================= RESTOCK =================
 
 @bot.command()
 async def restock(ctx, tier: str):
-    if not ctx.author.guild_permissions.administrator:
-        return await ctx.send("❌ Sem permissão.")
+    if not is_admin(ctx):
+        return await ctx.send("❌ Admin only command.")
 
     tier = tier.upper()
     stock = load_json("stock.json")
 
     if tier not in stock:
-        return await ctx.send("❌ Tier inválido.")
+        return await ctx.send("❌ Invalid tier.")
 
     items = ctx.message.content.split("\n")[1:]
 
     if not items:
-        return await ctx.send("❌ Coloque os itens abaixo do comando.")
+        return await ctx.send("❌ Add items below the command.")
 
     for item in items:
         stock[tier].append(item)
@@ -88,68 +204,66 @@ async def restock(ctx, tier: str):
     save_json("stock.json", stock)
     backup_files()
 
-    await ctx.send(f"✅ {len(items)} itens adicionados em {tier}")
+    total = len(stock[tier])
 
-# ================== ENTREGA ==================
+    await send_restock_alert(ctx, tier, total)
 
-class GenView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+    await ctx.send(f"✅ Added {len(items)} items to {tier}")
 
-    async def process(self, interaction, tier, price):
-        credits = load_json("credits.json")
-        stock = load_json("stock.json")
-        history = load_json("history.json")
-
-        user_id = str(interaction.user.id)
-
-        if credits.get(user_id, 0) < price:
-            return await interaction.response.send_message("❌ Créditos insuficientes.", ephemeral=True)
-
-        if len(stock[tier]) == 0:
-            return await interaction.response.send_message("❌ Sem estoque.", ephemeral=True)
-
-        item = stock[tier].pop(0)
-        credits[user_id] -= price
-
-        history.append({
-            "user": str(interaction.user),
-            "tier": tier,
-            "item": item
-        })
-
-        save_json("stock.json", stock)
-        save_json("credits.json", credits)
-        save_json("history.json", history)
-
-        backup_files()
-
-        try:
-            await interaction.user.send(f"🔐 Produto gerado:\n```{item}```")
-            await interaction.response.send_message("✅ Enviado no seu privado.", ephemeral=True)
-        except:
-            await interaction.response.send_message("❌ Ative sua DM.", ephemeral=True)
-
-    @discord.ui.button(label="LOW - 3 créditos", style=discord.ButtonStyle.red)
-    async def low(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.process(interaction, "LOW", 3)
-
-    @discord.ui.button(label="MEDIUM - 10 créditos", style=discord.ButtonStyle.blurple)
-    async def medium(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.process(interaction, "MEDIUM", 10)
-
-    @discord.ui.button(label="HIGH - 14 créditos", style=discord.ButtonStyle.green)
-    async def high(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.process(interaction, "HIGH", 14)
+# ================= SALES HISTORY =================
 
 @bot.command()
-async def painel(ctx):
-    await ctx.send("Escolha o tier:", view=GenView())
+async def saleshistory(ctx):
+    if not is_admin(ctx):
+        return await ctx.send("❌ Admin only command.")
 
-# ==================
+    sales = load_json("sales.json")
+
+    if not sales:
+        return await ctx.send("No sales recorded.")
+
+    embed = discord.Embed(title="📊 Sales History", color=discord.Color.gold())
+
+    for sale in sales[-10:]:
+        embed.add_field(
+            name=f"{sale['tier']} - {sale['user']}",
+            value=sale["date"],
+            inline=False
+        )
+
+    await ctx.send(embed=embed)
+
+# ================= PURCHASE HISTORY =================
+
+@bot.command()
+async def purchasehistory(ctx, member: discord.Member):
+    if not is_admin(ctx):
+        return await ctx.send("❌ Admin only command.")
+
+    sales = load_json("sales.json")
+    user_sales = [s for s in sales if s["id"] == member.id]
+
+    if not user_sales:
+        return await ctx.send("No purchases found.")
+
+    embed = discord.Embed(
+        title=f"🛒 Purchase History - {member}",
+        color=discord.Color.orange()
+    )
+
+    for sale in user_sales:
+        embed.add_field(
+            name=sale["tier"],
+            value=sale["date"],
+            inline=False
+        )
+
+    await ctx.send(embed=embed)
+
+# ================= READY =================
 
 @bot.event
 async def on_ready():
-    print(f"Bot online como {bot.user}")
+    print(f"Bot running as {bot.user}")
 
 bot.run(TOKEN)
