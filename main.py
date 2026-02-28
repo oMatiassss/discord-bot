@@ -5,9 +5,9 @@ import os
 import shutil
 from datetime import datetime
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("MTQ3NzA2NzAzOTg0MjYzNTg1OA.G0vCSX.mVsjHxQcYur6qznxY73CyCZNQf57TDarhdxP88")
 
-ALERT_ROLE_ID = 111111111111111111  # PUT YOUR ROLE ID
+ALERT_ROLE_ID =1477373729486147634
 ALERT_CHANNEL_ID =1477368909945503846
 
 intents = discord.Intents.default()
@@ -267,4 +267,5 @@ async def on_ready():
     print(f"Bot running as {bot.user}")
 
 bot.run(TOKEN)
+
 
